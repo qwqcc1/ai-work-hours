@@ -1,0 +1,7 @@
+{
+  "envId": "tencnetcloud-d0gix13uz6b520764",
+  "version": "2.0",
+  "cloudrun": {
+    "name": "workhours"
+  }
+}

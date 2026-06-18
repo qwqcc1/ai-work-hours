@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% block title %}汇总统计 - AI工时管理系统{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>工时汇总</h1>
+    <p class="text-muted">按日/周/月维度归集工时，支持一键导出 Excel 报表</p>
+</div>
+
+<div class="summary-grid">
+    <div class="summary-grid-left">
+        <div class="card">
+            <div class="card-title-row">
+                <span class="card-title-icon">&#128269;</span>
+                <span>工时查询</span>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>汇总维度</label>
+                    <select id="dimension">
+                        <option value="日">按日汇总</option>
+                        <option value="周">按周汇总</option>
+                        <option value="月">按月汇总</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>开始日期</label>
+                    <input type="date" id="start-date">
+                </div>
+                <div class="form-group">
+                    <label>结束日期</label>
+                    <input type="date" id="end-date">
+                </div>
+                <div class="form-group">
+                    <label>项目分类</label>
+                    <select id="category">
+                        <option value="">全部分类</option>
+                        <option value="方舱">方舱</option>
+                        <option value="运维项目">运维项目</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-actions">
+                <button class="btn btn-primary" onclick="loadSummary()">查询汇总</button>
+                <button class="btn btn-outline" onclick="exportSummary()">导出当前范围</button>
+            </div>
+        </div>
+    </div>
+    <div class="summary-grid-right">
+        <div class="card card-export">
+            <div class="card-title-row">
+                <span class="card-title-icon">&#128196;</span>
+                <span>快速导出</span>
+            </div>
+            <p class="card-desc">选择一个月份，直接导出该月所有工时数据为 Excel 表格</p>
+            <div class="form-group">
+                <label>选择月份</label>
+                <input type="month" id="export-month">
+            </div>
+            <button class="btn btn-primary btn-block" onclick="exportMonth()" style="margin-top:16px;">导出本月工时</button>
+        </div>
+    </div>
+</div>
+
+<div class="section">
+    <div class="summary-total" id="grand-total" style="display:none;">
+        总计工时: <strong id="total-value">0</strong> 小时
+    </div>
+    <div class="card" style="padding:0;">
+        <div class="table-wrapper" style="border:none;">
+            <table id="summary-table">
+                <thead><tr><th>时间</th><th>总工时(h)</th><th>记录数</th><th>按项目分布</th><th>按人员分布</th></tr></thead>
+                <tbody><tr><td colspan="5" class="text-center"><div class="empty-state"><div class="empty-icon">&#128202;</div><p>请选择条件后点击查询</p></div></td></tr></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block extra_script %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    document.getElementById('start-date').value = monthStartStr();
+    document.getElementById('end-date').value = todayStr();
+    document.getElementById('export-month').value = todayStr().substring(0, 7);
+});
+
+async function loadSummary() {
+    try {
+        var res = await apiPost('/api/summary', {
+            dimension: document.getElementById('dimension').value,
+            start_date: document.getElementById('start-date').value,
+            end_date: document.getElementById('end-date').value,
+            category: document.getElementById('category').value || null
+        });
+        var tbody = document.querySelector('#summary-table tbody');
+        document.getElementById('grand-total').style.display = 'block';
+        document.getElementById('total-value').textContent = res.grand_total_hours;
+
+        if (res.items && res.items.length) {
+            tbody.innerHTML = res.items.map(function(item) {
+                return '<tr>' +
+                    '<td><strong>' + item.label + '</strong></td>' +
+                    '<td><span class="badge badge-success"><span class="badge-dot"></span>' + item.total_hours + 'h</span></td>' +
+                    '<td>' + item.entries_count + '</td>' +
+                    '<td>' + (Object.entries(item.by_project).map(function(kv){return '<span class="tag">' + kv[0] + ': ' + kv[1] + 'h</span>';}).join(' ') || '-') + '</td>' +
+                    '<td>' + (Object.entries(item.by_user).map(function(kv){return '<span class="tag tag-blue">' + kv[0] + ': ' + kv[1] + 'h</span>';}).join(' ') || '-') + '</td>' +
+                '</tr>';
+            }).join('');
+        } else {
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center"><div class="empty-state"><div class="empty-icon">&#128270;</div><p>无匹配数据</p></div></td></tr>';
+        }
+        showToast('查询完成，共 ' + res.items.length + ' 个分组', 'success');
+    } catch(err) {
+        showToast('查询失败: ' + err.message, 'error');
+    }
+}
+
+function getMonthRange(monthStr) {
+    var y = parseInt(monthStr.split('-')[0]);
+    var m = parseInt(monthStr.split('-')[1]);
+    var firstDay = new Date(y, m - 1, 1);
+    var lastDay = new Date(y, m, 0);
+    return {
+        start: firstDay.toISOString().split('T')[0],
+        end: lastDay.toISOString().split('T')[0],
+        label: y + '年' + m + '月'
+    };
+}
+
+async function exportSummary() {
+    try {
+        showToast('正在生成报表...', 'info');
+        var res = await apiPostDownload('/api/export', {
+            start_date: document.getElementById('start-date').value,
+            end_date: document.getElementById('end-date').value,
+            format: 'xlsx'
+        });
+        var blob = await res.blob();
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url; a.download = '工时汇总_' + todayStr() + '.xlsx'; a.click();
+        showToast('报表已导出', 'success');
+    } catch(e) {
+        showToast('导出失败', 'error');
+    }
+}
+
+async function exportMonth() {
+    var monthVal = document.getElementById('export-month').value;
+    if (!monthVal) { showToast('请先选择月份', 'error'); return; }
+    var range = getMonthRange(monthVal);
+    try {
+        showToast('正在生成 ' + range.label + ' 模板报表...', 'info');
+        var res = await apiPostDownload('/api/export-monthly-template', {
+            month: parseInt(monthVal.split('-')[1]),
+            year: parseInt(monthVal.split('-')[0])
+        });
+        var blob = await res.blob();
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url; a.download = monthVal.split('-')[0] + '年' + monthVal.split('-')[1] + '月工时统计.xlsx'; a.click();
+        showToast(range.label + ' 报表已导出', 'success');
+    } catch(e) {
+        showToast('导出失败', 'error');
+    }
+}
+</script>
+{% endblock %}

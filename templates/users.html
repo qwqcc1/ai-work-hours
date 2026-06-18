@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}人员管理 - AI工时管理系统{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>人员管理</h1>
+</div>
+<div class="card">
+    <div class="table-toolbar">
+        <input type="text" id="search-input" placeholder="搜索用户名/手机号..." oninput="filterUsers()">
+    </div>
+    <table class="data-table" id="users-table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>用户名</th>
+                <th>角色</th>
+                <th>真实姓名</th>
+                <th>手机号</th>
+                <th>状态</th>
+                <th>注册时间</th>
+            </tr>
+        </thead>
+        <tbody id="users-tbody">
+            <tr><td colspan="7" style="text-align:center;color:#999;">加载中...</td></tr>
+        </tbody>
+    </table>
+</div>
+{% endblock %}
+{% block extra_script %}
+<script>
+let allUsers = [];
+
+async function loadUsers() {
+    try {
+        const data = await apiGet('/api/admin/users');
+        allUsers = data || [];
+        renderTable(allUsers);
+    } catch (err) {
+        document.getElementById('users-tbody').innerHTML =
+            '<tr><td colspan="7" style="text-align:center;color:#e74c3c;">加载失败：' + err.message + '</td></tr>';
+    }
+}
+
+function renderTable(users) {
+    if (users.length === 0) {
+        document.getElementById('users-tbody').innerHTML =
+            '<tr><td colspan="7" style="text-align:center;color:#999;">暂无用户数据</td></tr>';
+        return;
+    }
+    const html = users.map(u => `
+        <tr>
+            <td>${u.id}</td>
+            <td>${escHtml(u.username)}</td>
+            <td><span class="role-badge role-${u.role}">${roleLabel(u.role)}</span></td>
+            <td>${escHtml(u.real_name || '-')}</td>
+            <td>${escHtml(u.phone || '-')}</td>
+            <td>${u.is_active ? '<span class="status-active">启用</span>' : '<span class="status-disabled">禁用</span>'}</td>
+            <td>${u.created_at ? new Date(u.created_at).toLocaleString('zh-CN') : '-'}</td>
+        </tr>
+    `).join('');
+    document.getElementById('users-tbody').innerHTML = html;
+}
+
+function filterUsers() {
+    const kw = document.getElementById('search-input').value.trim().toLowerCase();
+    if (!kw) {
+        renderTable(allUsers);
+        return;
+    }
+    const filtered = allUsers.filter(u =>
+        u.username.toLowerCase().includes(kw) ||
+        (u.phone && u.phone.toLowerCase().includes(kw)) ||
+        (u.real_name && u.real_name.toLowerCase().includes(kw))
+    );
+    renderTable(filtered);
+}
+
+function roleLabel(role) {
+    return {admin: '管理员', manager: '经理', member: '普通用户'}[role] || role;
+}
+
+function escHtml(s) {
+    if (!s) return '';
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const u = JSON.parse(localStorage.getItem('user') || '{}');
+    if (u.role !== 'admin') {
+        alert('仅管理员可访问此页面');
+        window.location.href = '/dashboard';
+        return;
+    }
+    loadUsers();
+});
+</script>
+{% endblock %}

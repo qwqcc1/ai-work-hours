@@ -1,0 +1,273 @@
+{% extends "base.html" %}
+{% block title %}任务管理 - AI工时管理系统{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1 id="task-page-title">查看任务</h1>
+    <p class="text-muted" id="task-page-desc">我发布的与分配给我的</p>
+</div>
+
+<div class="tabs" id="task-tabs" role="tablist">
+    <button class="tab-btn active" role="tab" aria-selected="true" aria-controls="tab-published" onclick="switchTab('published')">我发布的</button>
+    <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-received" onclick="switchTab('received')">分配给我的</button>
+</div>
+
+<!-- 发布新任务 -->
+<div id="tab-create" class="tab-content" style="display:none;">
+    <div class="card">
+        <form id="task-form">
+            <div class="form-row">
+                <div class="form-group"><label>任务标题</label><input type="text" id="task-title" placeholder="请输入任务名称" required></div>
+                <div class="form-group"><label>所属项目</label><select id="task-project" required></select></div>
+            </div>
+            <div class="form-row">
+                <div class="form-group"><label>开始时间</label><input type="datetime-local" id="task-start" required></div>
+                <div class="form-group"><label>结束时间</label><input type="datetime-local" id="task-end" required></div>
+                <div class="form-group"><label>地点</label><input type="text" id="task-location" placeholder="任务执行地点"></div>
+            </div>
+            <div class="form-group"><label>任务描述</label><textarea id="task-desc" rows="3" placeholder="详细描述任务内容和要求"></textarea></div>
+            <div class="form-group"><label>分配给</label>
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;" id="assignee-area">
+                    <span id="selected-assignees" style="display:flex;gap:6px;flex-wrap:wrap;"></span>
+                    <button type="button" class="btn-add-assignee" id="btn-add-assignee" onclick="toggleAssigneePopover()" title="添加人员">+</button>
+                    <div class="assignee-popover" id="assignee-popover" style="display:none;">
+                        <div class="popover-header">
+                            <span>选择人员</span>
+                            <button type="button" class="popover-close" onclick="toggleAssigneePopover()">&times;</button>
+                        </div>
+                        <div class="popover-list" id="popover-list"></div>
+                        <div class="popover-footer">
+                            <button type="button" class="btn btn-primary btn-sm" onclick="toggleAssigneePopover()">完成</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary">发布任务</button>
+        </form>
+    </div>
+</div>
+
+<!-- 我发布的 -->
+<div id="tab-published" class="tab-content" role="tabpanel" aria-labelledby="tab-published">
+    <div class="card" style="padding:0;">
+        <div class="table-wrapper" style="border:none;">
+            <table id="published-table">
+                <thead><tr><th>标题</th><th>项目</th><th>时间</th><th>分配给</th><th>状态</th><th>操作</th></tr></thead>
+                <tbody><tr><td colspan="6"><div class="empty-state"><p>加载中...</p></div></td></tr></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- 分配给我的 -->
+<div id="tab-received" class="tab-content" role="tabpanel" style="display:none;">
+    <div class="card" style="padding:0;">
+        <div class="table-wrapper" style="border:none;">
+            <table id="received-table">
+                <thead><tr><th>标题</th><th>发布者</th><th>项目</th><th>时间</th><th>地点</th><th>状态</th><th>操作</th></tr></thead>
+                <tbody><tr><td colspan="7"><div class="empty-state"><p>加载中...</p></div></td></tr></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block extra_script %}
+<script>
+var currentTab = 'published';
+
+function switchTab(tab) {
+    currentTab = tab;
+    document.querySelectorAll('.tab-btn').forEach(function(b){ b.classList.remove('active'); b.setAttribute('aria-selected', 'false'); });
+    var btn = document.querySelector('.tab-btn[onclick*="switchTab(\'' + tab + '\')"]');
+    if (btn) { btn.classList.add('active'); btn.setAttribute('aria-selected', 'true'); }
+    document.querySelectorAll('.tab-content').forEach(function(d){ d.style.display = 'none'; });
+    document.getElementById('tab-' + tab).style.display = 'block';
+    window.location.hash = tab === 'published' ? '' : tab;
+    if (tab === 'published') loadPublished();
+    if (tab === 'received') loadReceived();
+}
+
+// Check hash on load
+document.addEventListener('DOMContentLoaded', function() {
+    var hash = window.location.hash.replace('#', '');
+    if (hash === 'create') {
+        document.getElementById('task-page-title').textContent = '发布任务';
+        document.getElementById('task-page-desc').textContent = '创建并分配新任务';
+        document.getElementById('task-tabs').style.display = 'none';
+        document.getElementById('tab-create').style.display = 'block';
+        initCreateForm();
+        return;
+    }
+    if (hash === 'received') { switchTab('received'); return; }
+    loadPublished();
+});
+
+window.addEventListener('hashchange', function() {
+    var hash = window.location.hash.replace('#', '');
+    if (hash === 'create') {
+        document.getElementById('task-page-title').textContent = '发布任务';
+        document.getElementById('task-page-desc').textContent = '创建并分配新任务';
+        document.getElementById('task-tabs').style.display = 'none';
+        document.querySelectorAll('.tab-content').forEach(function(d){ d.style.display = 'none'; });
+        document.getElementById('tab-create').style.display = 'block';
+        initCreateForm();
+        return;
+    }
+    document.getElementById('task-page-title').textContent = '查看任务';
+    document.getElementById('task-page-desc').textContent = '我发布的与分配给我的';
+    document.getElementById('task-tabs').style.display = '';
+    document.getElementById('tab-create').style.display = 'none';
+    if (hash === 'received') switchTab('received'); else switchTab('published');
+});
+
+var allUsers = [];
+var selectedUsers = {};
+
+async function initCreateForm() {
+    var projects = await apiGet('/api/projects');
+    var sel = document.getElementById('task-project');
+    sel.innerHTML = '<option value="" disabled selected hidden>请选择项目</option>';
+    (projects || []).forEach(function(p){ sel.innerHTML += '<option value="'+p.id+'">'+p.name+'</option>'; });
+    allUsers = await apiGet('/api/users/simple') || [];
+    selectedUsers = {};
+    renderAssigneeChips();
+    renderPopoverList();
+    var now = new Date(); now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+    document.getElementById('task-start').value = now.toISOString().slice(0,16);
+    now.setHours(now.getHours()+2);
+    document.getElementById('task-end').value = now.toISOString().slice(0,16);
+}
+
+function toggleAssigneePopover() {
+    var pop = document.getElementById('assignee-popover');
+    if (pop.style.display === 'none') { pop.style.display = 'block'; renderPopoverList(); }
+    else { pop.style.display = 'none'; }
+}
+
+function renderPopoverList() {
+    var list = document.getElementById('popover-list');
+    list.innerHTML = allUsers.map(function(u) {
+        var checked = selectedUsers[u.id] ? 'checked' : '';
+        return '<label class="popover-item"><input type="checkbox" value="'+u.id+'" '+checked+' onchange="toggleUser('+u.id+', this.checked)"> <span>'+u.real_name+'</span><span style="color:var(--text-tertiary);font-size:11px;margin-left:auto;">@'+u.username+'</span></label>';
+    }).join('');
+}
+
+function toggleUser(id, checked) {
+    if (checked) { selectedUsers[id] = true; }
+    else { delete selectedUsers[id]; }
+    renderAssigneeChips();
+}
+
+function renderAssigneeChips() {
+    var container = document.getElementById('selected-assignees');
+    var ids = Object.keys(selectedUsers);
+    container.innerHTML = ids.map(function(id) {
+        var u = allUsers.find(function(x){ return x.id === parseInt(id); });
+        return '<span class="assignee-chip">' + (u ? u.real_name : id) + ' <button type="button" class="chip-remove" onclick="removeUser('+id+')">&times;</button></span>';
+    }).join('');
+}
+
+function removeUser(id) {
+    delete selectedUsers[id];
+    renderAssigneeChips();
+    renderPopoverList();
+}
+
+// Close popover on outside click
+document.addEventListener('click', function(e) {
+    var pop = document.getElementById('assignee-popover');
+    var btn = document.getElementById('btn-add-assignee');
+    if (!pop || pop.style.display === 'none') return;
+    if (!pop.contains(e.target) && e.target !== btn) { pop.style.display = 'none'; }
+});
+
+document.getElementById('task-form').addEventListener('submit', async function(e){
+    e.preventDefault();
+    var ids = Object.keys(selectedUsers).map(Number);
+    if (!ids.length) { showToast('请至少选择一位执行人', 'warning'); return; }
+    try {
+        await apiPost('/api/tasks', {
+            project_id: parseInt(document.getElementById('task-project').value),
+            title: document.getElementById('task-title').value,
+            description: document.getElementById('task-desc').value,
+            start_time: document.getElementById('task-start').value,
+            end_time: document.getElementById('task-end').value,
+            location: document.getElementById('task-location').value,
+            assignee_ids: ids
+        });
+        showToast('任务已发布', 'success');
+        switchTab('published');
+    } catch(err) { showToast('发布失败: '+err.message, 'error'); }
+});
+
+async function loadPublished() {
+    try {
+    var tasks = await apiGet('/api/tasks/published');
+    var tbody = document.querySelector('#published-table tbody');
+    if (!tasks.length) { tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state"><div class="empty-icon">&#128203;</div><p>暂无发布的任务</p></div></td></tr>'; return; }
+    var statusMap = {pending:'待处理',in_progress:'进行中',completed:'已完成',cancelled:'已取消'};
+    var statusTag = {pending:'tag-orange',in_progress:'tag-blue',completed:'tag-green',cancelled:'tag'};
+    tbody.innerHTML = tasks.map(function(t){
+        var assignees = (t.assignees||[]).map(function(a){ return a.user_name; }).join(', ') || '-';
+        return '<tr>'+
+            '<td><strong>'+t.title+'</strong></td>'+
+            '<td>'+t.project_name+'</td>'+
+            '<td>'+t.start_time.slice(0,16)+' ~ '+t.end_time.slice(0,16)+'</td>'+
+            '<td>'+assignees+'</td>'+
+            '<td><span class="tag '+statusTag[t.status]+'">'+(statusMap[t.status]||t.status)+'</span></td>'+
+            '<td>'+ (t.status==='pending' ? '<button class="btn btn-sm btn-danger" onclick="cancelTask('+t.id+')">取消</button>' : '-') +'</td>'+
+        '</tr>';
+    }).join('');
+    } catch(e) {
+        document.querySelector('#published-table tbody').innerHTML = '<tr><td colspan="6"><div class="empty-state"><p style="color:var(--red);">加载失败，请刷新重试</p></div></td></tr>';
+    }
+}
+
+async function loadReceived() {
+    try {
+    var tasks = await apiGet('/api/tasks/received');
+    var tbody = document.querySelector('#received-table tbody');
+    if (!tasks.length) { tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">&#128203;</div><p>暂无分配的任务</p></div></td></tr>'; return; }
+    var statusMap = {pending:'待接收',accepted:'进行中',rejected:'已拒绝',done:'已完成'};
+    tbody.innerHTML = tasks.map(function(t){
+        var as = t.assignment_status;
+        var actions = '';
+        if (as === 'pending') actions = '<button class="btn btn-sm btn-primary" onclick="handleTask('+t.id+',\'accept\')">接受</button> <button class="btn btn-sm btn-danger" onclick="handleTask('+t.id+',\'reject\')">拒绝</button>';
+        else if (as === 'accepted') actions = '<button class="btn btn-sm btn-primary" onclick="handleTask('+t.id+',\'done\')">完成</button>';
+        else actions = '<span style="color:var(--text-tertiary);font-size:12px;">'+(statusMap[as]||as)+'</span>';
+        return '<tr>'+
+            '<td><strong>'+t.title+'</strong></td>'+
+            '<td>'+t.publisher_name+'</td>'+
+            '<td>'+t.project_name+'</td>'+
+            '<td>'+t.start_time.slice(0,16)+' ~ '+t.end_time.slice(0,16)+'</td>'+
+            '<td>'+ (t.location||'-') +'</td>'+
+            '<td><span class="tag '+({pending:'tag-orange',accepted:'tag-blue',done:'tag-green',rejected:'tag'}[as]||'')+'">'+(statusMap[as]||as)+'</span></td>'+
+            '<td>'+actions+'</td>'+
+        '</tr>';
+    }).join('');
+    } catch(e) {
+        document.querySelector('#received-table tbody').innerHTML = '<tr><td colspan="7"><div class="empty-state"><p style="color:var(--red);">加载失败，请刷新重试</p></div></td></tr>';
+    }
+}
+
+async function handleTask(id, action) {
+    try {
+        await apiPut('/api/tasks/'+id+'/assign', {action:action});
+        showToast({accept:'已接受',reject:'已拒绝',done:'已完成'}[action], 'success');
+        loadReceived();
+    } catch(err) { showToast('操作失败', 'error'); }
+}
+
+async function cancelTask(id) {
+    showModal('确认取消', '<p>确定要取消这个任务吗？</p>',
+        '<button class="btn btn-ghost" onclick="closeModal()">返回</button>'+
+        '<button class="btn btn-danger" id="confirm-cancel">确认取消</button>');
+    document.getElementById('confirm-cancel').onclick = async function(){
+        await apiDelete('/api/tasks/'+id);
+        closeModal();
+        showToast('任务已取消', 'info');
+        loadPublished();
+    };
+}
+
+</script>
+{% endblock %}

@@ -1,0 +1,334 @@
+{% extends "base.html" %}
+{% block title %}系统管理 - AI工时管理系统{% endblock %}
+{% block extra_head %}
+<style>
+.modal-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;z-index:1000;}
+.modal-box{background:#fff;border-radius:12px;padding:28px 32px;min-width:400px;max-width:520px;box-shadow:0 8px 32px rgba(0,0,0,0.18);}
+.modal-box h3{margin:0 0 18px 0;font-size:18px;}
+.modal-box .form-group{margin-bottom:14px;}
+.modal-box .form-group label{display:block;font-size:13px;color:#6e6e73;margin-bottom:4px;}
+.modal-box .form-group input,.modal-box .form-group select{width:100%;padding:8px 12px;border:1px solid #d2d2d7;border-radius:8px;font-size:14px;}
+.modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:20px;}
+.modal-actions button{padding:8px 20px;border-radius:8px;font-size:14px;cursor:pointer;border:none;}
+.btn-save{background:#007AFF;color:#fff;}
+.btn-cancel{background:#f5f5f7;color:#1d1d1f;}
+.btn-sm{padding:4px 12px;font-size:12px;border-radius:6px;border:none;cursor:pointer;margin-right:4px;}
+.btn-sm-edit{background:#e8f0fe;color:#007AFF;}
+.btn-sm-del{background:#fde8e8;color:#d93025;}
+</style>
+{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1 id="admin-page-title">用户管理</h1>
+    <p class="text-muted" id="admin-page-desc">账号创建、编辑与权限控制</p>
+</div>
+
+
+<!-- 用户管理 -->
+<div class="tab-panel active" id="tab-users">
+    <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;">
+            <h3 style="margin:0;">用户列表</h3>
+            <div style="display:flex;gap:8px;">
+                <input type="text" id="user-search" placeholder="搜索用户名/姓名/手机..." oninput="loadUsers()" style="padding:6px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;width:200px;">
+                <button class="btn btn-primary btn-sm" onclick="showCreateUser()">+ 新增用户</button>
+            </div>
+        </div>
+        <div class="table-wrapper">
+            <table id="users-table">
+                <thead><tr><th>ID</th><th>用户名</th><th>姓名</th><th>角色</th><th>手机</th><th>状态</th><th>操作</th></tr></thead>
+                <tbody><tr><td colspan="7" class="text-center">加载中...</td></tr></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- 项目管理 -->
+<div class="tab-panel" id="tab-projects" style="display:none;">
+    <div class="card">
+        <h3>创建项目</h3>
+        <form id="project-form" class="form-row">
+            <div class="form-group">
+                <input type="text" id="proj-name" placeholder="项目名称" required>
+            </div>
+            <div class="form-group">
+                <select id="proj-category">
+                    <option value="运维项目">运维项目</option>
+                    <option value="方舱">方舱</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <input type="text" id="proj-desc" placeholder="项目描述">
+            </div>
+            <div class="form-group">
+                <button type="submit" class="btn btn-primary">创建项目</button>
+            </div>
+        </form>
+    </div>
+    <div class="card">
+        <h3>项目列表</h3>
+        <div class="table-wrapper">
+            <table id="projects-table">
+                <thead><tr><th>ID</th><th>名称</th><th>分类</th><th>描述</th><th>状态</th><th>操作</th></tr></thead>
+                <tbody><tr><td colspan="6" class="text-center">加载中...</td></tr></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+
+<!-- 编辑弹窗 -->
+<div class="modal-overlay" id="edit-modal" style="display:none;">
+    <div class="modal-box">
+        <h3 id="edit-modal-title">编辑</h3>
+        <div id="edit-modal-body"></div>
+        <div class="modal-actions">
+            <button class="btn-cancel" onclick="closeEditModal()">取消</button>
+            <button class="btn-save" id="edit-modal-save">保存</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block extra_script %}
+<script>
+// ===== 弹窗 =====
+let modalSaveCallback = null;
+
+function openModal(title, bodyHtml, onSave) {
+    document.getElementById('edit-modal-title').textContent = title;
+    document.getElementById('edit-modal-body').innerHTML = bodyHtml;
+    document.getElementById('edit-modal').style.display = 'flex';
+    modalSaveCallback = onSave;
+    document.getElementById('edit-modal-save').onclick = async () => {
+        if (modalSaveCallback) await modalSaveCallback();
+    };
+}
+
+function closeEditModal() {
+    document.getElementById('edit-modal').style.display = 'none';
+    modalSaveCallback = null;
+}
+
+// ===== 面板切换 (仅通过侧边栏 hash) =====
+function switchTab(name) {
+    document.querySelectorAll('.tab-panel').forEach(p => p.style.display = 'none');
+    var panel = document.getElementById('tab-' + name);
+    if (panel) {
+        panel.style.display = 'block';
+        // 更新页面标题
+        var titleEl = document.getElementById('admin-page-title');
+        var descEl = document.getElementById('admin-page-desc');
+        if (name === 'projects') {
+            if (titleEl) titleEl.textContent = '项目管理';
+            if (descEl) descEl.textContent = '项目创建、编辑与分类管理';
+            loadProjects();
+        } else {
+            if (titleEl) titleEl.textContent = '用户管理';
+            if (descEl) descEl.textContent = '账号创建、编辑与权限控制';
+            refreshUserCache();
+        }
+    }
+}
+
+// 根据 hash 显示对应面板
+function handleHash() {
+    var hash = window.location.hash.replace('#', '');
+    if (hash === 'projects') switchTab('projects'); else switchTab('users');
+}
+handleHash();
+window.addEventListener('hashchange', handleHash);
+
+// ===== 用户管理 =====
+var allUsersCache = null;
+
+async function loadUsers() {
+    try {
+        if (!allUsersCache) {
+            allUsersCache = await apiGet('/api/admin/users');
+        }
+        var keyword = (document.getElementById('user-search').value || '').toLowerCase();
+        var users = allUsersCache;
+        if (keyword) {
+            users = allUsersCache.filter(function(u) {
+                return (u.username || '').toLowerCase().indexOf(keyword) >= 0 ||
+                       (u.real_name || '').toLowerCase().indexOf(keyword) >= 0 ||
+                       (u.phone || '').toLowerCase().indexOf(keyword) >= 0;
+            });
+        }
+        const roleLabels = {admin:'管理员',manager:'经理',member:'普通用户'};
+        document.querySelector('#users-table tbody').innerHTML = users.length ? users.map(u => `
+            <tr>
+                <td>${u.id}</td>
+                <td>${escHtml(u.username)}</td>
+                <td>${escHtml(u.real_name || '-')}</td>
+                <td><span class="tag">${roleLabels[u.role]||u.role}</span></td>
+                <td>${escHtml(u.phone || '-')}</td>
+                <td>${u.is_active ? '活跃' : '禁用'}</td>
+                <td>
+                    <button class="btn-sm btn-sm-edit" onclick="editUser(${u.id},'${escJs(u.username)}','${u.role}','${escJs(u.phone||'')}','${escJs(u.real_name||'')}',${u.is_active})">编辑</button>
+                    <button class="btn-sm btn-sm-del" onclick="delUser(${u.id},'${escJs(u.username)}')">删除</button>
+                </td>
+            </tr>
+        `).join('') : '<tr><td colspan="7" class="text-center">无匹配用户</td></tr>';
+    } catch(e) {
+        document.querySelector('#users-table tbody').innerHTML = '<tr><td colspan="7" class="text-center">需要管理员权限</td></tr>';
+    }
+}
+
+// 新增/编辑后刷新缓存
+function refreshUserCache() { allUsersCache = null; loadUsers(); }
+
+function editUser(id, username, role, phone, realName, isActive) {
+    const bodyHtml = `
+        <div class="form-group"><label>用户名</label><input type="text" value="${escHtml(username)}" disabled></div>
+        <div class="form-group"><label>真实姓名</label><input type="text" id="eu-realname" value="${escHtml(realName)}"></div>
+        <div class="form-group"><label>手机号</label><input type="text" id="eu-phone" value="${escHtml(phone)}"></div>
+        <div class="form-group"><label>新密码 <span style="font-weight:400;color:var(--text-tertiary);">(留空不修改)</span></label><input type="password" id="eu-password" placeholder="至少6位"></div>
+        <div class="form-group">
+            <label>角色</label>
+            <select id="eu-role">
+                <option value="admin" ${role==='admin'?'selected':''}>管理员</option>
+                <option value="manager" ${role==='manager'?'selected':''}>经理</option>
+                <option value="member" ${role==='member'?'selected':''}>普通用户</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>状态</label>
+            <select id="eu-active">
+                <option value="true" ${isActive?'selected':''}>启用</option>
+                <option value="false" ${!isActive?'selected':''}>禁用</option>
+            </select>
+        </div>
+    `;
+    openModal('编辑用户 - ' + username, bodyHtml, async () => {
+        var data = {
+            real_name: document.getElementById('eu-realname').value,
+            phone: document.getElementById('eu-phone').value,
+            role: document.getElementById('eu-role').value,
+            is_active: document.getElementById('eu-active').value === 'true'
+        };
+        var pwd = document.getElementById('eu-password').value;
+        if (pwd) data.password = pwd;
+        await apiPut(`/api/admin/users/${id}`, data);
+        closeEditModal();
+        refreshUserCache();
+    });
+}
+
+function showCreateUser() {
+    const bodyHtml = `
+        <div class="form-group"><label>用户名</label><input type="text" id="cu-username" placeholder="登录用户名" required></div>
+        <div class="form-group"><label>真实姓名</label><input type="text" id="cu-realname" placeholder="显示名称"></div>
+        <div class="form-group"><label>密码</label><input type="password" id="cu-password" placeholder="至少6位" required></div>
+        <div class="form-group"><label>手机号</label><input type="text" id="cu-phone" placeholder="手机号"></div>
+        <div class="form-group">
+            <label>角色</label>
+            <select id="cu-role">
+                <option value="member">普通用户</option>
+                <option value="manager">经理</option>
+                <option value="admin">管理员</option>
+            </select>
+        </div>
+    `;
+    openModal('新增用户', bodyHtml, async () => {
+        await apiPost('/api/admin/users', {
+            username: document.getElementById('cu-username').value,
+            real_name: document.getElementById('cu-realname').value,
+            password: document.getElementById('cu-password').value,
+            phone: document.getElementById('cu-phone').value,
+            role: document.getElementById('cu-role').value
+        });
+        closeEditModal();
+        refreshUserCache();
+        showToast('用户创建成功', 'success');
+    });
+}
+
+async function delUser(id, username) {
+    if (!confirm(`确定要删除用户 "${username}" 吗？`)) return;
+    await apiDelete(`/api/admin/users/${id}`);
+    refreshUserCache();
+}
+
+// ===== 项目管理 =====
+async function loadProjects() {
+    const projects = await apiGet('/api/projects');
+    document.querySelector('#projects-table tbody').innerHTML = projects.map(p => `
+        <tr>
+            <td>${p.id}</td>
+            <td>${escHtml(p.name)}</td>
+            <td><span class="tag tag-${p.category==='方舱'?'shelter':'ops'}">${p.category}</span></td>
+            <td>${escHtml(p.description||'-')}</td>
+            <td>活跃</td>
+            <td>
+                <button class="btn-sm btn-sm-edit" onclick="editProject(${p.id},'${escJs(p.name)}','${p.category}','${escJs(p.description||'')}')">编辑</button>
+                <button class="btn-sm btn-sm-del" onclick="delProject(${p.id},'${escJs(p.name)}')">删除</button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function editProject(id, name, category, desc) {
+    const bodyHtml = `
+        <div class="form-group"><label>项目名称</label><input type="text" id="ep-name" value="${escHtml(name)}"></div>
+        <div class="form-group">
+            <label>分类</label>
+            <select id="ep-category">
+                <option value="运维项目" ${category==='运维项目'?'selected':''}>运维项目</option>
+                <option value="方舱" ${category==='方舱'?'selected':''}>方舱</option>
+            </select>
+        </div>
+        <div class="form-group"><label>描述</label><input type="text" id="ep-desc" value="${escHtml(desc)}"></div>
+    `;
+    openModal('编辑项目 - ' + name, bodyHtml, async () => {
+        await apiPut(`/api/admin/projects/${id}`, {
+            name: document.getElementById('ep-name').value,
+            category: document.getElementById('ep-category').value,
+            description: document.getElementById('ep-desc').value
+        });
+        closeEditModal();
+        loadProjects();
+    });
+}
+
+async function delProject(id, name) {
+    if (!confirm(`确定要删除项目 "${name}" 吗？`)) return;
+    await apiDelete(`/api/admin/projects/${id}`);
+    loadProjects();
+}
+
+function escHtml(s) {
+    if (!s) return '';
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+function escJs(s) {
+    if (!s) return '';
+    return s.replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'\\"').replace(/\n/g,'\\n');
+}
+
+// ===== 创建项目 =====
+document.getElementById('project-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    await apiPost('/api/projects', {
+        name: document.getElementById('proj-name').value,
+        category: document.getElementById('proj-category').value,
+        description: document.getElementById('proj-desc').value
+    });
+    alert('项目创建成功');
+    document.getElementById('proj-name').value = '';
+    document.getElementById('proj-desc').value = '';
+    loadProjects();
+});
+
+// ===== 初始化 =====
+apiGet('/api/me').then(user => {
+    if (user.role === 'admin') {
+        ['sidebar-link-users','sidebar-link-projects'].forEach(function(id) {
+            var el = document.getElementById(id);
+            if (el) el.style.display = 'flex';
+        });
+    }
+});
+
+</script>
+{% endblock %}

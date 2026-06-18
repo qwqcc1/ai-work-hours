@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+{% block title %}工时录入 - AI工时管理系统{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>工时录入</h1>
+    <p class="text-muted">填报日常工时，支持 PC 端和手机端</p>
+</div>
+<div class="card">
+    <form id="entry-form">
+        <div class="form-row">
+            <div class="form-group">
+                <label>日期</label>
+                <input type="date" id="entry-date" required>
+            </div>
+            <div class="form-group">
+                <label>项目</label>
+                <select id="project-id" required></select>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>工时 (小时)</label>
+                <input type="number" id="hours" step="0.5" min="0.5" max="24" placeholder="请输入工时" required>
+            </div>
+            <div class="form-group">
+                <label>工时类型</label>
+                <select id="work-type"></select>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>地区</label>
+                <input type="text" id="location" placeholder="请输入项目地点">
+            </div>
+            <div class="form-group">
+                <label>项目番号</label>
+                <input type="text" id="project-number" placeholder="请输入项目番号">
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>工作完成情况</label>
+                <input type="text" id="completion-status" placeholder="如：已完成/进行中/未开始">
+            </div>
+        </div>
+        <div class="form-group">
+            <label>工作描述</label>
+            <textarea id="description" rows="3" placeholder="请简要描述工作内容"></textarea>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:8px;">
+            <button type="submit" class="btn btn-primary">提交工时</button>
+            <button type="button" class="btn btn-ghost" onclick="document.getElementById('entry-form').reset();">重置</button>
+        </div>
+    </form>
+</div>
+
+<div class="section">
+    <div class="section-header">
+        <h3>我的近期工时段</h3>
+        <span style="font-size:13px;color:var(--text-tertiary);">最近 50 条</span>
+    </div>
+    <div class="card" style="padding:0;">
+        <div class="table-wrapper" style="border:none;">
+            <table id="my-entries">
+                <thead><tr><th>日期</th><th>项目</th><th>番号</th><th>完成情况</th><th>地区</th><th>类型</th><th>工时</th><th>描述</th><th>操作</th></tr></thead>
+                <tbody><tr><td colspan="9" class="text-center"><div class="skeleton skeleton-text" style="width:70%;margin:8px auto;"></div></td></tr></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block extra_script %}
+<script>
+async function init() {
+    document.getElementById('entry-date').value = todayStr();
+    var projects = await apiGet('/api/projects');
+    var sel = document.getElementById('project-id');
+    sel.innerHTML = '<option value="" disabled selected hidden>请选择项目</option>';
+    (projects || []).forEach(function(p) {
+        sel.innerHTML += '<option value="' + p.id + '">' + p.name + '</option>';
+    });
+    var types = await apiGet('/api/work-types');
+    var typeSel = document.getElementById('work-type');
+    (types || []).forEach(function(t) {
+        typeSel.innerHTML += '<option>' + t.name + '</option>';
+    });
+    loadMyEntries();
+}
+
+async function loadMyEntries() {
+    try {
+        var entries = await apiGet('/api/work-entries?limit=50');
+        var tbody = document.querySelector('#my-entries tbody');
+        if (entries.length) {
+            tbody.innerHTML = entries.map(function(e) {
+                var tagClass = e.project_category === '方舱' ? 'tag-green' : 'tag-blue';
+                return '<tr>' +
+                    '<td>' + e.entry_date + '</td>' +
+                    '<td><span class="tag ' + tagClass + '">' + (e.project_name || '-') + '</span></td>' +
+                    '<td>' + (e.project_number || '-') + '</td>' +
+                    '<td>' + (e.completion_status || '-') + '</td>' +
+                    '<td>' + (e.location || '-') + '</td>' +
+                    '<td>' + e.work_type + '</td>' +
+                    '<td><strong>' + e.hours + 'h</strong></td>' +
+                    '<td>' + (e.description ? (e.description.length > 20 ? e.description.slice(0,20)+'...' : e.description) : '-') + '</td>' +
+                    '<td><button class="btn btn-sm btn-danger" onclick="deleteEntry(' + e.id + ')">删除</button></td>' +
+                '</tr>';
+            }).join('');
+        } else {
+            tbody.innerHTML = '<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">&#128203;</div><p>暂无记录</p></div></td></tr>';
+        }
+    } catch(err) {
+        showToast('加载记录失败', 'error');
+    }
+}
+
+document.getElementById('entry-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    var btn = e.target.querySelector('button[type=submit]');
+    btn.textContent = '提交中...'; btn.disabled = true;
+    try {
+        var res = await apiPost('/api/work-entries', {
+            project_id: parseInt(document.getElementById('project-id').value),
+            hours: parseFloat(document.getElementById('hours').value),
+            work_type: document.getElementById('work-type').value,
+            description: document.getElementById('description').value,
+            entry_date: document.getElementById('entry-date').value,
+            location: document.getElementById('location').value,
+            project_number: document.getElementById('project-number').value,
+            completion_status: document.getElementById('completion-status').value
+        });
+        if (res.id) {
+            showToast('工时录入成功！' + res.hours + 'h', 'success');
+            document.getElementById('description').value = '';
+            document.getElementById('hours').value = '';
+            document.getElementById('location').value = '';
+            document.getElementById('project-number').value = '';
+            document.getElementById('completion-status').value = '';
+            loadMyEntries();
+            // Refresh dashboard stats in background if open
+        } else {
+            showToast('录入失败', 'error');
+        }
+    } catch(err) {
+        showToast('录入失败: ' + err.message, 'error');
+    }
+    btn.textContent = '提交工时'; btn.disabled = false;
+});
+
+async function deleteEntry(id) {
+    showModal('确认删除', '<p>确定要删除此条工时记录吗？此操作不可撤销。</p>',
+        '<button class="btn btn-ghost" onclick="closeModal()">取消</button>' +
+        '<button class="btn btn-danger" id="confirm-delete-btn">确认删除</button>'
+    );
+    document.getElementById('confirm-delete-btn').onclick = async function() {
+        try {
+            await apiDelete('/api/work-entries/' + id);
+            showToast('记录已删除', 'info');
+            closeModal();
+            loadMyEntries();
+        } catch(err) {
+            showToast('删除失败: ' + err.message, 'error');
+            closeModal();
+        }
+    };
+}
+
+init();
+</script>
+{% endblock %}

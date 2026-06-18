@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}注册 - AI工时管理系统{% endblock %}
+{% block content %}
+<div class="register-container">
+    <div class="login-icon">
+        <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect width="48" height="48" rx="12" fill="url(#apple-gradient)"/>
+            <circle cx="24" cy="18" r="5.5" stroke="white" stroke-width="1.8" fill="none"/>
+            <path d="M13 38c0-6.075 4.925-11 11-11s11 4.925 11 11" stroke="white" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+            <defs>
+                <linearGradient id="apple-gradient" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0%" stop-color="#34C759"/>
+                    <stop offset="100%" stop-color="#30B0C7"/>
+                </linearGradient>
+            </defs>
+        </svg>
+    </div>
+    <h2>创建账号</h2>
+    <p class="subtitle">加入团队，开始记录工时</p>
+    <form id="register-form">
+        <div class="form-group" style="margin-bottom:14px;">
+            <label>用户名</label>
+            <input type="text" id="username" placeholder="请输入用户名" required>
+        </div>
+        <div class="form-group" style="margin-bottom:14px;">
+            <label>密码</label>
+            <input type="password" id="password" placeholder="至少6位字符" required minlength="6">
+        </div>
+        <div class="form-group" style="margin-bottom:14px;">
+            <label>真实姓名</label>
+            <input type="text" id="real-name" placeholder="请输入姓名">
+        </div>
+        <div class="form-group" style="margin-bottom:24px;">
+            <label>手机号</label>
+            <input type="text" id="phone" placeholder="选填">
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">注 册</button>
+    </form>
+    <p class="form-footer">
+        已有账号？<a href="/">立即登录</a>
+    </p>
+</div>
+{% endblock %}
+{% block extra_script %}
+<script>
+document.getElementById('register-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    var btn = e.target.querySelector('button');
+    btn.textContent = '注册中...'; btn.disabled = true;
+    try {
+        var res = await fetch('/api/register', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                username: document.getElementById('username').value,
+                password: document.getElementById('password').value,
+                real_name: document.getElementById('real-name').value,
+                phone: document.getElementById('phone').value
+            })
+        });
+        var data = await res.json();
+        if (res.ok) {
+            localStorage.setItem('token', data.access_token);
+            localStorage.setItem('user', JSON.stringify(data.user));
+            showToast('注册成功，欢迎！', 'success');
+            setTimeout(function() { window.location.href = '/dashboard'; }, 500);
+        } else {
+            var msg = '注册失败';
+            if (typeof data.detail === 'string') { msg = data.detail; }
+            else if (Array.isArray(data.detail)) { msg = data.detail.map(function(e){return e.msg;}).join('；'); }
+            showToast(msg, 'error');
+        }
+    } catch (err) {
+        showToast('网络错误，请重试', 'error');
+    }
+    btn.textContent = '注 册'; btn.disabled = false;
+});
+</script>
+{% endblock %}

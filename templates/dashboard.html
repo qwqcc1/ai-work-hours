@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+{% block title %}仪表盘 - AI工时管理系统{% endblock %}
+{% block extra_head %}
+<script src="/static/js/chart.js"></script>
+{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>工时仪表盘</h1>
+    <p class="text-muted">{{ today }} · 今日概览与数据洞察</p>
+</div>
+
+<div class="stats-grid">
+    <div class="stat-card accent-blue">
+        <div class="stat-icon">&#9200;</div>
+        <div class="stat-value blue" id="today-hours">--</div>
+        <div class="stat-label">今日工时</div>
+        <div class="stat-sub" id="today-entries"></div>
+    </div>
+    <div class="stat-card accent-green">
+        <div class="stat-icon">&#128197;</div>
+        <div class="stat-value" id="week-hours">--</div>
+        <div class="stat-label">本周工时</div>
+        <div class="stat-sub" id="week-avg"></div>
+    </div>
+    <div class="stat-card accent-orange">
+        <div class="stat-icon">&#128200;</div>
+        <div class="stat-value" id="month-hours">--</div>
+        <div class="stat-label">本月工时</div>
+        <div class="stat-sub" id="month-avg"></div>
+    </div>
+    <div class="stat-card accent-purple">
+        <div class="stat-icon">&#128221;</div>
+        <div class="stat-value" id="total-entries">--</div>
+        <div class="stat-label">本月记录数</div>
+        <div class="stat-sub" id="active-projects"></div>
+    </div>
+</div>
+
+<div class="grid-2">
+    <div class="card">
+        <div class="section-header">
+            <h3>本周趋势</h3>
+            <span style="font-size:12px;color:var(--text-tertiary);">工时 / 天</span>
+        </div>
+        <div class="chart-container"><canvas id="chart-weekly"></canvas></div>
+    </div>
+    <div class="card">
+        <div class="section-header">
+            <h3>项目分布</h3>
+            <span style="font-size:12px;color:var(--text-tertiary);">本月</span>
+        </div>
+        <div class="chart-container"><canvas id="chart-projects"></canvas></div>
+        <div class="chart-legend" id="project-legend"></div>
+    </div>
+</div>
+
+<div class="section">
+    <div class="section-header">
+        <h3>最近录入记录</h3>
+        <a href="/entry" class="btn btn-primary btn-sm">+ 录入工时</a>
+    </div>
+    <div class="card" style="padding:0;">
+        <div class="table-wrapper" style="border:none;">
+            <table id="recent-entries">
+                <thead>
+                    <tr><th>日期</th><th>项目</th><th>地区</th><th>类型</th><th>工时</th><th>描述</th></tr>
+                </thead>
+                <tbody><tr><td colspan="6" class="text-center"><div class="skeleton skeleton-text" style="width:80%;margin:8px auto;"></div><div class="skeleton skeleton-text" style="width:60%;margin:8px auto;"></div></td></tr></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block extra_script %}
+<script>
+var weeklyChart, projectChart;
+
+async function loadDashboard() {
+    var today = todayStr();
+    var weekStart = weekStartStr();
+    var monthStart = monthStartStr();
+
+    try {
+        // Summary data
+        var tRes = await apiPost('/api/summary', {dimension:'日', start_date:today, end_date:today});
+        var wRes = await apiPost('/api/summary', {dimension:'日', start_date:weekStart, end_date:today});
+        var mRes = await apiPost('/api/summary', {dimension:'日', start_date:monthStart, end_date:today});
+
+        // Stat cards
+        var todayH = tRes.items && tRes.items.length ? tRes.items[0].total_hours : 0;
+        var todayN = tRes.items && tRes.items.length ? tRes.items[0].entries_count : 0;
+        document.getElementById('today-hours').textContent = todayH;
+        document.getElementById('today-entries').textContent = todayN + ' 条记录';
+
+        var weekTotal = wRes.items ? wRes.items.reduce(function(s,i){return s+i.total_hours;}, 0) : 0;
+        var weekDays = wRes.items ? wRes.items.length : 1;
+        document.getElementById('week-hours').textContent = Math.round(weekTotal * 10) / 10;
+        document.getElementById('week-avg').textContent = '日均 ' + (Math.round(weekTotal / weekDays * 10) / 10) + 'h';
+
+        var monthTotal = mRes.items ? mRes.items.reduce(function(s,i){return s+i.total_hours;}, 0) : 0;
+        var monthEntries = mRes.items ? mRes.items.reduce(function(s,i){return s+i.entries_count;}, 0) : 0;
+        var monthDays = mRes.items ? mRes.items.length : 1;
+        document.getElementById('month-hours').textContent = Math.round(monthTotal * 10) / 10;
+        document.getElementById('month-avg').textContent = '日均 ' + (Math.round(monthTotal / monthDays * 10) / 10) + 'h';
+        document.getElementById('total-entries').textContent = monthEntries;
+
+        // Active projects
+        var projects = await apiGet('/api/projects');
+        document.getElementById('active-projects').textContent = (projects ? projects.length : 0) + ' 个活跃项目';
+
+        // Weekly trend chart
+        var weekLabels = []; var weekData = [];
+        var ws = new Date(); ws.setDate(ws.getDate() - ws.getDay() + 1);
+        for (var d = 0; d < 7; d++) {
+            var dd = new Date(ws); dd.setDate(ws.getDate() + d);
+            var ds = fmtDate(dd);
+            var dayNames = ['日','一','二','三','四','五','六'];
+            var label = '周' + dayNames[dd.getDay()];
+            weekLabels.push(label);
+            var found = (wRes.items || []).find(function(x){return x.label === ds;});
+            weekData.push(found ? Math.round(found.total_hours * 10) / 10 : 0);
+        }
+        if (!weeklyChart) weeklyChart = new SimpleChart('chart-weekly', {type:'line', data:weekData, labels:weekLabels, colors:['#007AFF']});
+        else weeklyChart.update(weekData, weekLabels);
+
+        // Project distribution (donut)
+        var projHours = {};
+        (mRes.items || []).forEach(function(item) {
+            for (var pn in item.by_project) {
+                projHours[pn] = (projHours[pn] || 0) + item.by_project[pn];
+            }
+        });
+        var projNames = Object.keys(projHours);
+        var projData = projNames.map(function(n){return Math.round(projHours[n]*10)/10;});
+        var donutColors = ['#007AFF','#34C759','#FF9500','#AF52DE','#5AC8FA','#FF2D55','#FF9F0A','#30D158'];
+        if (!projectChart) projectChart = new SimpleChart('chart-projects', {type:'donut', data:projData, labels:projNames, colors:donutColors});
+        else projectChart.update(projData, projNames, donutColors);
+
+        // Legend
+        var legendHtml = '';
+        projNames.forEach(function(n,i){
+            legendHtml += '<div class="chart-legend-item"><span class="chart-legend-dot" style="background:'+donutColors[i%donutColors.length]+';"></span>'+n+' ('+projData[i]+'h)</div>';
+        });
+        document.getElementById('project-legend').innerHTML = legendHtml || '<span style="color:var(--text-tertiary);font-size:13px;">暂无数据</span>';
+
+        // Recent entries
+        var entries = await apiGet('/api/work-entries?limit=10');
+        var tbody = document.querySelector('#recent-entries tbody');
+        if (entries.length > 0) {
+            tbody.innerHTML = entries.map(function(e) {
+                var tagClass = e.project_category === '方舱' ? 'tag-green' : 'tag-blue';
+                return '<tr>' +
+                    '<td>' + e.entry_date + '</td>' +
+                    '<td><span class="tag ' + tagClass + '">' + (e.project_name || '-') + '</span></td>' +
+                    '<td>' + (e.location || '-') + '</td>' +
+                    '<td>' + e.work_type + '</td>' +
+                    '<td><strong>' + e.hours + 'h</strong></td>' +
+                    '<td>' + (e.description ? (e.description.length > 30 ? e.description.slice(0,30)+'...' : e.description) : '-') + '</td>' +
+                '</tr>';
+            }).join('');
+        } else {
+            tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state"><div class="empty-icon">&#128203;</div><p>暂无记录</p><a href="/entry" class="btn btn-primary btn-sm" style="margin-top:12px;">录入第一条工时</a></div></td></tr>';
+        }
+    } catch (err) {
+        console.error(err);
+        showToast('加载仪表盘失败: ' + err.message, 'error');
+    }
+}
+
+async function quickExport() {
+    try {
+        showToast('正在生成报表...', 'info');
+        var res = await apiPostDownload('/api/export', {start_date: monthStartStr(), end_date: todayStr(), format:'xlsx'});
+        var blob = await res.blob();
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url; a.download = '工时报表_' + todayStr() + '.xlsx'; a.click();
+        showToast('报表已导出', 'success');
+    } catch(e) {
+        showToast('导出失败', 'error');
+    }
+}
+
+loadDashboard();
+</script>
+{% endblock %}
